@@ -4,6 +4,7 @@ import com.github.lukethompsxn.edufuse.util.ErrorCodes;
 import com.github.lukethompsxn.edufuse.util.FuseFillDir;
 import jnr.ffi.Pointer;
 import jnr.ffi.Runtime;
+import jnr.ffi.Struct.NumberField;
 import jnr.ffi.types.dev_t;
 import jnr.ffi.types.mode_t;
 import jnr.ffi.types.off_t;
@@ -163,6 +164,12 @@ public class MemoryFS extends FileSystemStub {
         
         buf.put(0, node.getContent(), (int)offset, amount);
         
+        // Change access time
+        long secondTime = System.currentTimeMillis()/1000;
+        long nanoSecondTime = System.nanoTime();
+        node.getStat().st_atim.tv_sec.set(secondTime);
+        node.getStat().st_atim.tv_nsec.set(nanoSecondTime);
+        
         if (isVisualised()) {
             visualiser.sendINodeTable(iNodeTable);
         }
@@ -175,9 +182,32 @@ public class MemoryFS extends FileSystemStub {
         if (!iNodeTable.containsINode(path)) {
             return -ErrorCodes.ENOENT(); // ENONET();
         }
-        // similar to read but you get data from the buffer like:
-        // buf.get(0, content, offset, size);
-
+        
+        MemoryINode node = iNodeTable.getINode(path);
+        
+        // Insert data into bufferContent array
+        byte[] bufferContent = new byte[(int)size];
+        buf.get(0, bufferContent, 0, (int)size);
+        
+        // Initialize new arrays
+        byte[] oldContent = node.getContent();
+        byte[] newContent = new byte[(int)size+node.getContent().length];
+        
+        // Concatenate oldContent and bufferContent
+        for(int i = 0; i < oldContent.length; i++) {
+        	newContent[i] = oldContent[i];
+        }
+        for(int i = 0; i < bufferContent.length; i++) {
+        	newContent[i+oldContent.length] = bufferContent[i];
+        }
+        
+        // Change time and file size
+        long secondTime = System.currentTimeMillis()/1000;
+        long nanoSecondTime = System.nanoTime();
+        node.getStat().st_size.set(node.getContent().length);
+        node.getStat().st_mtim.tv_sec.set(secondTime);
+        node.getStat().st_mtim.tv_nsec.set(nanoSecondTime);
+        
         if (isVisualised()) {
             visualiser.sendINodeTable(iNodeTable);
         }
@@ -192,8 +222,36 @@ public class MemoryFS extends FileSystemStub {
         }
 
         MemoryINode mockINode = new MemoryINode();
-        // set up the stat information for this inode
-
+        
+        // Set up the stat information for this inode
+        FileStat stat = new FileStat(Runtime.getSystemRuntime());
+        
+        stat.st_mode.set(mode);
+        stat.st_rdev.set(rdev);
+        stat.st_size.set(0);
+        stat.st_nlink.set(1);
+        stat.st_uid.set(unix.getUid());
+        stat.st_gid.set(unix.getGid());
+        stat.st_blocks.set(0);
+        stat.st_blksize.set(BLOCK_SIZE);
+        
+        long secondTime = System.currentTimeMillis()/1000;
+        long nanoSecondTime = System.nanoTime();
+        
+        // Access time
+        stat.st_atim.tv_sec.set(secondTime);
+        stat.st_atim.tv_nsec.set(nanoSecondTime);
+        
+        // Status change time
+        stat.st_ctim.tv_sec.set(secondTime);
+        stat.st_ctim.tv_nsec.set(nanoSecondTime);
+        
+        // Modification time
+        stat.st_mtim.tv_sec.set(secondTime);
+        stat.st_mtim.tv_nsec.set(nanoSecondTime);
+        
+        mockINode.setStat(stat);
+        
         iNodeTable.updateINode(path, mockINode);
 
         if (isVisualised()) {
@@ -231,6 +289,17 @@ public class MemoryFS extends FileSystemStub {
         if (!iNodeTable.containsINode(path)) {
             return -ErrorCodes.ENONET();
         }
+        
+        MemoryINode node = iNodeTable.getINode(path);
+        node.getStat().st_nlink.set(0);
+        
+        // Remove all instances of the node at path in iNodeTable.
+        for(String entryPath: iNodeTable.entries()) {
+        	if(iNodeTable.getINode(entryPath) == node) {
+        		iNodeTable.removeINode(entryPath);
+        	}
+        }
+        
         // delete the file if there are no more hard links
         return 0;
     }
