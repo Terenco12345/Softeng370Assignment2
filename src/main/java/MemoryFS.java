@@ -4,7 +4,6 @@ import com.github.lukethompsxn.edufuse.util.ErrorCodes;
 import com.github.lukethompsxn.edufuse.util.FuseFillDir;
 import jnr.ffi.Pointer;
 import jnr.ffi.Runtime;
-import jnr.ffi.Struct.NumberField;
 import jnr.ffi.types.dev_t;
 import jnr.ffi.types.mode_t;
 import jnr.ffi.types.off_t;
@@ -14,7 +13,9 @@ import util.MemoryINodeTable;
 import util.MemoryVisualiser;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map.Entry;
 import java.util.Objects;
 
@@ -179,6 +180,8 @@ public class MemoryFS extends FileSystemStub {
 
     @Override
     public int write(String path, Pointer buf, @size_t long size, @off_t long offset, FuseFileInfo fi) {
+    	System.out.println("Attempting to write at "+path);
+    	
         if (!iNodeTable.containsINode(path)) {
             return -ErrorCodes.ENOENT(); // ENONET();
         }
@@ -201,6 +204,8 @@ public class MemoryFS extends FileSystemStub {
         	newContent[i+oldContent.length] = bufferContent[i];
         }
         
+        node.setContent(newContent);
+        
         // Change time and file size
         long secondTime = System.currentTimeMillis()/1000;
         long nanoSecondTime = System.nanoTime();
@@ -217,6 +222,8 @@ public class MemoryFS extends FileSystemStub {
 
     @Override
     public int mknod(String path, @mode_t long mode, @dev_t long rdev) {
+    	System.out.println("Attempting to make node at "+path);
+    	
         if (iNodeTable.containsINode(path)) {
             return -ErrorCodes.EEXIST();
         }
@@ -281,24 +288,40 @@ public class MemoryFS extends FileSystemStub {
     
     @Override
     public int link(java.lang.String oldpath, java.lang.String newpath) {
+    	System.out.println("Attempting to link node at "+oldpath+" with node at "+newpath);
+    	MemoryINode oldNode = iNodeTable.getINode(oldpath);
+    	oldNode.getStat().st_nlink.set(oldNode.getStat().st_nlink.intValue()+1);
+    	
+    	iNodeTable.updateINode(newpath, oldNode);
+    	
         return 0;
     }
 
     @Override
     public int unlink(String path) {
+    	System.out.println("Attempting to remove node at "+path);
+    	
         if (!iNodeTable.containsINode(path)) {
             return -ErrorCodes.ENONET();
         }
         
+        List<String> pathsToRemove = new ArrayList<>();
         MemoryINode node = iNodeTable.getINode(path);
-        node.getStat().st_nlink.set(0);
         
         // Remove all instances of the node at path in iNodeTable.
         for(String entryPath: iNodeTable.entries()) {
         	if(iNodeTable.getINode(entryPath) == node) {
-        		iNodeTable.removeINode(entryPath);
+        		System.out.println("Node at "+entryPath+" should be removed");
+        		pathsToRemove.add(entryPath);
         	}
         }
+        
+        for(String pathToRemove: pathsToRemove) {
+        	System.out.println("Node at "+pathToRemove+" removed");
+        	iNodeTable.removeINode(pathToRemove);
+        }
+        
+        node.getStat().st_nlink.set(0);
         
         // delete the file if there are no more hard links
         return 0;

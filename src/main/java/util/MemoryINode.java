@@ -1,5 +1,7 @@
 package util;
 
+import java.util.UUID;
+
 import com.github.lukethompsxn.edufuse.struct.FileStat;
 
 /**
@@ -11,7 +13,7 @@ import com.github.lukethompsxn.edufuse.struct.FileStat;
 public class MemoryINode {
     private transient FileStat stat;
     private byte[] content = new byte[0];
-
+    
     /**
      * Gets the FileStat for the given INode.
      *
@@ -37,5 +39,4 @@ public class MemoryINode {
     public void setContent(byte[] content) {
         this.content = content;
     }
-
 }
