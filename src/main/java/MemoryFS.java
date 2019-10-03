@@ -9,6 +9,7 @@ import jnr.ffi.types.mode_t;
 import jnr.ffi.types.off_t;
 import jnr.ffi.types.size_t;
 import util.MemoryINode;
+import util.MemoryINodeDirectory;
 import util.MemoryINodeTable;
 import util.MemoryVisualiser;
 
@@ -22,7 +23,7 @@ import java.util.Objects;
 import com.sun.security.auth.module.UnixSystem;
 
 /**
- * @author Luke Thompson and (add your name here)
+ * @author Luke Thompson and Terence Qu
  * @since 04.09.19
  */
 public class MemoryFS extends FileSystemStub {
@@ -108,7 +109,7 @@ public class MemoryFS extends FileSystemStub {
 
     @Override
     public int readdir(String path, Pointer buf, FuseFillDir filler, @off_t long offset, FuseFileInfo fi) {
-    	System.out.println("Calling readdir.");
+    	System.out.println("Calling readdir at "+path);
     	
     	// For each file in the directory call filler.apply.
         // The filler.apply method adds information on the files
@@ -120,18 +121,42 @@ public class MemoryFS extends FileSystemStub {
         filler.apply(buf, ".", null, 0);
         filler.apply(buf, "..", null, 0);
         
+        
+        
         // Obtain all of the directory's children.
         HashMap<String, MemoryINode> dirChildren = new HashMap<>();
-        for(String entry: iNodeTable.entries()) {
-        	if(entry.contains(path)) {
-        		dirChildren.put(entry, iNodeTable.getINode(entry));
-        	}
+        if(path.equals("/")) {
+        	for(String entry: iNodeTable.entries()) {
+            	String fileName = entry.substring(path.length());
+            	
+            	// Test files in the iNodeTable against the criteria of not being a child of any child of root.
+            	if(!fileName.equals("") && !fileName.contains("/")) {
+            		dirChildren.put(fileName, iNodeTable.getINode(entry));
+            	}
+            }
+        } else {
+        	for(String entry: iNodeTable.entries()) {
+            	if(entry.startsWith(path)) {
+            		String fileName = entry.substring(path.length());
+            		
+            		// Test files in the iNodeTable against the criteria of not being a child of any child of root.
+            		// And not being itself.
+            		if(!fileName.equals("") && fileName.startsWith("/")) {
+            			System.out.println("entry: " +fileName);
+            			fileName = fileName.substring(1);
+            			if(!fileName.contains("/")) {
+            				dirChildren.put(fileName, iNodeTable.getINode(entry));
+            			}
+            		}
+            	}
+            }
         }
+        
         
         // Apply filler to all children
         for(Entry<String, MemoryINode> entry: dirChildren.entrySet()) {
-        	System.out.println("Filling with "+entry.getKey().substring(path.length()));
-        	filler.apply(buf, entry.getKey().substring(path.length()), entry.getValue().getStat(), 0);
+        	System.out.println("Filling with "+entry.getKey());
+            filler.apply(buf, entry.getKey(), entry.getValue().getStat(), 0);
         }
         
         return 0;
@@ -294,6 +319,10 @@ public class MemoryFS extends FileSystemStub {
     	
     	iNodeTable.updateINode(newpath, oldNode);
     	
+    	if (isVisualised()) {
+            visualiser.sendINodeTable(iNodeTable);
+        }
+    	
         return 0;
     }
 
@@ -308,7 +337,7 @@ public class MemoryFS extends FileSystemStub {
         List<String> pathsToRemove = new ArrayList<>();
         MemoryINode node = iNodeTable.getINode(path);
         
-        // Remove all instances of the node at path in iNodeTable.
+        // Find all instances of the node at path in iNodeTable.
         for(String entryPath: iNodeTable.entries()) {
         	if(iNodeTable.getINode(entryPath) == node) {
         		System.out.println("Node at "+entryPath+" should be removed");
@@ -316,6 +345,7 @@ public class MemoryFS extends FileSystemStub {
         	}
         }
         
+        // Remove all instances of the node
         for(String pathToRemove: pathsToRemove) {
         	System.out.println("Node at "+pathToRemove+" removed");
         	iNodeTable.removeINode(pathToRemove);
@@ -323,17 +353,64 @@ public class MemoryFS extends FileSystemStub {
         
         node.getStat().st_nlink.set(0);
         
+        if (isVisualised()) {
+            visualiser.sendINodeTable(iNodeTable);
+        }
+        
         // delete the file if there are no more hard links
         return 0;
     }
 
     @Override
     public int mkdir(String path, long mode) {
+    	System.out.println("Attempting to make directory at "+path);
+    	
+        if (iNodeTable.containsINode(path)) {
+            return -ErrorCodes.EEXIST();
+        }
+
+        MemoryINode mockINode = new MemoryINode();
+        
+        // Set up the stat information for this inode
+        FileStat stat = new FileStat(Runtime.getSystemRuntime());
+        
+        stat.st_mode.set(FileStat.S_IFDIR | mode);
+        stat.st_size.set(0);
+        stat.st_nlink.set(1);
+        stat.st_uid.set(unix.getUid());
+        stat.st_gid.set(unix.getGid());
+        stat.st_blocks.set(0);
+        stat.st_blksize.set(0);
+        
+        long secondTime = System.currentTimeMillis()/1000;
+        long nanoSecondTime = System.nanoTime();
+        
+        // Access time
+        stat.st_atim.tv_sec.set(secondTime);
+        stat.st_atim.tv_nsec.set(nanoSecondTime);
+        
+        // Status change time
+        stat.st_ctim.tv_sec.set(secondTime);
+        stat.st_ctim.tv_nsec.set(nanoSecondTime);
+        
+        // Modification time
+        stat.st_mtim.tv_sec.set(secondTime);
+        stat.st_mtim.tv_nsec.set(nanoSecondTime);
+        
+        mockINode.setStat(stat);
+        
+        iNodeTable.updateINode(path, mockINode);
+
+        if (isVisualised()) {
+            visualiser.sendINodeTable(iNodeTable);
+        }
+
         return 0;
     }
 
     @Override
     public int rmdir(String path) {
+    	
         return 0;
     }
 

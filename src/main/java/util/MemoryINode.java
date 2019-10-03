@@ -1,7 +1,5 @@
 package util;
 
-import java.util.UUID;
-
 import com.github.lukethompsxn.edufuse.struct.FileStat;
 
 /**
